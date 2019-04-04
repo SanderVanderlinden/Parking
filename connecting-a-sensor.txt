@@ -12,7 +12,7 @@
     Serial.begin (115200);
     pinMode(trigPin, OUTPUT); 
     pinMode(echoPin, INPUT);
-    pinMode(led, OUTPUT);
+    pinMode(ledGreen, OUTPUT);
     pinMode(led2, OUTPUT);
   }
   
@@ -27,12 +27,12 @@
     Serial.println(" ms duration");
     distance = (duration/2) / 29.1;
     if (distance < 4) {  // This is where the LED On/Off happens
-      digitalWrite(led,HIGH); // When the Red condition is met, the Green LED should turn off
-      digitalWrite(led2,LOW);
+      digitalWrite(ledRed,HIGH); // When the Red condition is met, the Green LED should turn off
+      digitalWrite(ledGreen,LOW);
     }
     else {
-      digitalWrite(led,LOW); // and this is of course, the inverse of the above.
-      digitalWrite(led2,HIGH);
+      digitalWrite(ledRed,LOW); // and this is of course, the inverse of the above.
+      digitalWrite(ledGreen,HIGH);
     }
     if (distance >= 300 || distance <= 0){
       Serial.println("Out of range");
