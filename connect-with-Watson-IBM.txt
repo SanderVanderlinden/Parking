@@ -1,1 +1,222 @@
-//TODO
+//include libraries we need later on
+#include <ESP8266WiFi.h>
+#include <PubSubClient.h>
+
+// Watson IoT connection details
+#define MQTT_HOST "REPLACE_WITH_YOUR_OWN.messaging.internetofthings.ibmcloud.com" //replace this with your own server link on IBM
+#define MQTT_PORT 1883
+#define MQTT_DEVICEID "d:rly0g8:arduino:DEVICE_NAME" //replace with your own device name
+#define MQTT_USER "use-token-auth"
+#define MQTT_TOKEN "YOUR_OWN_AUTH_TOKEN" //replace this with your own authentication token
+#define MQTT_TOPIC "iot-2/evt/status/fmt/json"
+#define MQTT_TOPIC_DISPLAY "iot-2/cmd/update/fmt/json"
+
+// values suitable for our network. 
+const char* ssid = "ucll-projectweek-IoT"; // CHANGE THIS FOR YOUR OWN NETWORK
+const char* password = "Foo4aiHa"; // CHANGE THISSE FOR YOUR OWN NETWORK
+const char* mqtt_server = MQTT_HOST;
+
+
+//create client variabele
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// make variables with the names of the pins and assign them the right pin number
+#define trigPinS1 16    //pin D0 is 16
+#define echoPinS1 5   //pin D1 is 5
+#define ledGreenS1 4  //pin D2 is 4
+#define ledRedS1 0      //pin D3 is 0
+#define trigPinS2 2    //pin D4 is 16
+#define echoPinS2 14   //pin D5 is 5
+#define ledGreenS2 12  //pin D6 is 4
+#define ledRedS2 13      //pin D7 is 0
+
+// defines variables of ultrasonic sensors
+long durationS1 = 0;
+int distanceS1 = 0;
+long durationS2 = 0;
+int distanceS2 = 0; 
+
+// We need the distances of the previous loop to detect whether the data has changed or not.
+int previousDistanceS1 = distanceS1;
+int previousDistanceS2 = distanceS2;
+
+// this loopcounter is used to perform a check every x loops.
+// Otherwise data is only transmitted when change is detected.
+int loopCounter = 0;
+
+void setup() {
+  Serial.begin (115200);
+  setup_wifi(); //zet wi-fi klaar
+  pinMode(trigPinS1, OUTPUT); 
+  pinMode(echoPinS1, INPUT);
+  pinMode(ledGreenS1, OUTPUT);
+  pinMode(ledRedS1, OUTPUT);
+  pinMode(trigPinS2, OUTPUT); 
+  pinMode(echoPinS2, INPUT);
+  pinMode(ledGreenS2, OUTPUT);
+  pinMode(ledRedS2, OUTPUT);
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
+}
+
+void setup_wifi() {
+  delay(10);
+  // We start by connecting to a WiFi network
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+void loop() {
+  //reconnect if disconnected
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+  
+  // Clears the trigPin
+  digitalWrite(trigPinS1, LOW);
+  delayMicroseconds(2);
+
+  // Sets the trigPin on HIGH state for 10 micro seconds
+  digitalWrite(trigPinS1, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPinS1, LOW);
+  delayMicroseconds(10);
+
+  // Reads the echoPin, returns the sound wave travel time in microseconds
+  durationS1 = pulseIn(echoPinS1, HIGH);
+  previousDistanceS1 = distanceS1;
+  distanceS1= durationS1*0.034/2;
+  
+  // Prints the distance on the Serial Monitor
+  Serial.print("Distance (Sensor 1): ");
+  Serial.print(distanceS1);
+  Serial.println(" cm");
+
+  //short delay to start with the next sensor
+  delay(200); 
+  
+  // Clears the trigPin
+  digitalWrite(trigPinS2, LOW);
+  delayMicroseconds(2);
+
+  // Sets the trigPin on HIGH state for 10 micro seconds
+  digitalWrite(trigPinS2, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPinS2, LOW);
+  delayMicroseconds(10);
+
+  // Reads the echoPin, returns the sound wave travel time in microseconds
+  durationS2 = pulseIn(echoPinS2, HIGH);
+  previousDistanceS2 = distanceS2;
+  distanceS2= durationS2*0.034/2;
+  
+  // Prints the distance on the Serial Monitor  
+  Serial.print("Distance (Sensor 2): ");
+  Serial.print(distanceS2);
+  Serial.println(" cm");
+
+//If no change is detected, we won't send data to the cloud, to prevent overhead
+  if ((abs(distanceS1 - previousDistanceS1) > 1) || (abs(distanceS2 - previousDistanceS2) > 1)){
+    Serial.println("CHANGE DETECTED");
+    
+    //build json and print to monitor
+    String payload = buildJson();
+    //Serial.println(payload);
+
+    //publish data to IBM
+    client.publish(MQTT_TOPIC, (char*) payload.c_str());
+  }
+  //If some change was not detected, we are backed up by this
+  if (loopCounter == 50){
+    Serial.println("CHECK EVERY 50 LOOPS");
+    client.publish(MQTT_TOPIC, (char*) buildJson().c_str());
+    loopCounter = 0;
+  }
+  else{
+    loopCounter++;
+  }
+} 
+
+void reconnect() {
+  // Loop until we're reconnected
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect(MQTT_DEVICEID, MQTT_USER, MQTT_TOKEN)) {
+      Serial.println("connected");
+      client.subscribe(MQTT_TOPIC_DISPLAY);
+    } 
+    else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+//The callback method handles data received from Watson IBM.
+void callback(char* topic, byte* payload, unsigned int length) {
+  
+  Serial.print("Parking 1 is ");
+  //The char with index 17 returned by the IBM platform determins if the parking spot is taken
+  if ((char)payload[17] == '1'){
+    digitalWrite(ledRedS1, HIGH);   // turn the LED on (HIGH is the voltage level)
+    digitalWrite(ledGreenS1, LOW);   // turn the LED off by making the voltage LOW
+    Serial.println("taken");
+  }
+  else{
+    digitalWrite(ledRedS1, LOW);    // turn the LED off by making the voltage LOW
+    digitalWrite(ledGreenS1, HIGH);  // turn the LED on (HIGH is the voltage level)
+    Serial.println("free");
+  }
+  //The char with index 38 returned by the IBM platform determins if the parking spot is taken
+  Serial.print("Parking 2 is ");
+  if ((char)payload[38] == '1'){
+    digitalWrite(ledRedS2, HIGH);   // turn the LED on (HIGH is the voltage level)
+    digitalWrite(ledGreenS2, LOW);   // turn the LED off by making the voltage LOW
+    Serial.println("taken");
+  }
+  else{
+    digitalWrite(ledRedS2, LOW);    // turn the LED off by making the voltage LOW
+    digitalWrite(ledGreenS2, HIGH);   // turn the LED on (HIGH is the voltage level)
+    Serial.println("free");
+  }
+  Serial.println("");
+}
+
+ //This method buils the data to be transmitted to the IBM platform in JSON
+  String buildJson() {
+  String data = "{";
+  data+="\n";
+  data+= "\"d\": {";
+  data+="\n";
+  data+="\"myName\": \"Arduino ESP8266MOD\",";
+  data+="\n";
+  data+="\"distanceS1 (cm)\": ";
+  data+=(int)distanceS1;
+  data+=",\n";
+  data+="\"distanceS2 (cm)\": ";
+  data+=(int)distanceS2;
+  data+="\n";
+  data+="}";
+  data+="\n";
+  data+="}";
+  return data;
+}
