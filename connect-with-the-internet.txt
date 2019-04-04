@@ -61,12 +61,6 @@ void setup_wifi() {
 }
 
 void loop() {
-  //reconnect if disconnected
-  if (!client.connected()) {
-    reconnect();
-  }
-  client.loop();
-  
   // Clears the trigPin
   digitalWrite(trigPinS1, LOW);
   delayMicroseconds(2);
@@ -126,23 +120,4 @@ void loop() {
   }
 
 delay(500);
-} 
-
-void reconnect() {
-  // Loop until we're reconnected
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    // Attempt to connect
-    if (client.connect(MQTT_DEVICEID, MQTT_USER, MQTT_TOKEN)) {
-      Serial.println("connected");
-      client.subscribe(MQTT_TOPIC_DISPLAY);
-    } 
-    else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(5000);
-    }
-  }
 }
